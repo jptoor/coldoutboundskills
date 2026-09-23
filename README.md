@@ -6,6 +6,21 @@ Open-source [Claude Code skills](https://docs.anthropic.com/en/docs/claude-code/
 
 **New here?** Invoke `/cold-email-kickoff` — it's the guided entry point that orchestrates ICP + lead magnet + strategy + plan in one flow.
 
+---
+
+## 🚀 **Deepline Port Available**
+
+**Looking for a Deepline-native version?** Check out [`deepline/`](deepline/) — all 19 signal playbooks ported as TypeScript plays + 30 operational skills adapted for Deepline + Lemlist + HubSpot.
+
+- ✅ All 19 signal plays (funding, new-in-role, LinkedIn engagement, etc.)
+- ✅ Lemlist-adapted infrastructure skills (replaces Smartlead)
+- ✅ HubSpot + Deepline Customer DB integration
+- ✅ Git-native TypeScript plays (no browser UI needed)
+
+**Start here:** [`deepline/README.md`](deepline/README.md)
+
+---
+
 ## What's in here
 
 30 skills organized in 5 tracks, plus 19 signal playbooks in Track 6 — each shipping three ways (a Claude skill, a Clay table build, and a Clay CLI workflow).
