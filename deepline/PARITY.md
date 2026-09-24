@@ -25,7 +25,7 @@ These have byte-identical locked prompts from SKILL.md §6:
 
 1. **funding-signal** - 240-line prompt (§6 L100-340) ✅
 2. **company-name-cleaning** - 22-example prompt (§6) ✅
-3. **first-name-cleaning** - 9092-char prompt with 30 examples (§6 L222-309, backticks escaped) ✅
+3. **first-name-cleaning** - 9002-char prompt with 30 examples (§6 fence[0] only, byte-identical) ✅
 4. **hiring-surge** - Static/per-row split prompt (§6) ✅
 5. **new-in-role** - 100-line prompt (§6 L250-282) ✅
 6. **pricing-page** - 120-line prompt with 4 examples (§6 L210-250) ✅
