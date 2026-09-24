@@ -1,95 +1,47 @@
 /**
- * Deepline port of playbook-new-in-role
- *
- * Original: skills/playbooks/playbook-new-in-role/SKILL.md
- * Output: new_in_role_line, role_change_type, role_start_month, months_in_role, prior_title
- *
- * Source chain: Prospeo /search-person with person_time_in_current_role filter → model line writer
- * Coverage: 9/10 usable (90%) | 0 false positives on tenure
- * Cost: ~$0.05 per 1,000 rows
- *
- * Locked prompt preserved verbatim from SKILL.md (graded on gpt-5-nano reasoning_effort=minimal).
- * Abstain = empty string.
+ * New in Role Play
+ * 
+ * Port of: skills/playbooks/playbook-new-in-role/clay-workflow.md
+ * 
+ * Graph:
+ * 1. Trigger: titles, location, headcount, time window
+ * 2. Tool: people search with person_time_in_current_role filter
+ * 3. CODE: Title gate (must include abbreviations)
+ * 4. CODE: Deterministic fields (role_change_type, months, month label)
+ * 5. Agent: write the line
+ * 6. CODE: QC + output contract
  */
 
-import { definePlay } from 'deepline';
-import type { DeeplinePlayRuntimeContext } from 'deepline';
+import { definePlay, PlayContext, PlayOutput } from '../../types/play';
 
-type NewInRoleRow = {
-  first_name: string;
-  current_title: string;
-  company_name: string;
-  company_domain: string;
+interface Input {
+  titles: string[];
+  location: string;
+  headcount_min: number;
+  headcount_max: number;
+  months_max?: number; // Default 3, ceiling 9
+}
+
+interface Output {
   new_in_role_line: string;
-  role_change_type: 'promotion' | 'new_hire';
+  role_change_type: 'promotion' | 'new_hire' | '';
   role_start_month: string;
   months_in_role: number;
   prior_title: string;
-  prior_company: string;
-};
-
-function monthsSince(isoDate: string): number {
-  if (!isoDate) return 9999;
-  const date = new Date(isoDate);
-  const now = new Date();
-  const months =
-    (now.getFullYear() - date.getFullYear()) * 12 + (now.getMonth() - date.getMonth());
-  return months;
 }
 
-function formatMonthYear(isoDate: string): string {
-  if (!isoDate) return '';
-  const date = new Date(isoDate);
-  const monthNames = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
-  return `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
-}
+// Month names for date formatting
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
 
-function cleanCompanyName(name: string): string {
-  // Strip legal suffixes and parentheticals per SKILL.md prompt
-  let clean = name;
-  // Remove anything in parentheses
-  clean = clean.replace(/\s*\([^)]*\)/g, '');
-  // Remove legal suffixes
-  const suffixes = [', LLC', ', Inc', ', PLC', ', Ltd', ' LLC', ' Inc', ' PLC', ' Ltd'];
-  for (const suffix of suffixes) {
-    if (clean.endsWith(suffix)) {
-      clean = clean.slice(0, -suffix.length);
-    }
-  }
-  return clean.trim();
-}
-
-async function generateNewInRoleLine(
-  ctx: DeeplinePlayRuntimeContext,
-  facts: {
-    first_name: string;
-    current_title: string;
-    company_name: string;
-    role_start_month: string;
-    months_in_role: number;
-    role_change_type: string;
-    prior_title: string;
-    prior_company: string;
-  }
-): Promise<{
-  new_in_role_line: string;
-  role_change_type: string;
-  confidence: string;
-}> {
-  const prompt = `You write one short opening clause for a cold email, about a person who recently changed jobs.
+// ============================================================================
+// LOCKED PROMPT from SKILL.md §6 (lines 250-282) - VERBATIM, graded at 9/10
+// Model: gpt-5-nano with reasoning_effort="minimal"
+// DO NOT PARAPHRASE. Model was graded on this exact text.
+// ============================================================================
+const LOCKED_PROMPT_NEW_IN_ROLE = `You write one short opening clause for a cold email, about a person who recently changed jobs.
 
 You will be given verified facts about one person. The facts are already true. Your only job is to turn them into one natural clause.
 
@@ -119,208 +71,156 @@ Facts: first_name=Priya | current_title= | company_name=Northwind Labs | role_st
 Output: {"new_in_role_line": "", "role_change_type": "new_hire", "confidence": "low"}
 
 PER-ROW DATA (appended last, as the user message, never merged into the block above)
-Facts: first_name=${facts.first_name} | current_title=${facts.current_title} | company_name=${facts.company_name} | role_start_month=${facts.role_start_month} | months_in_role=${facts.months_in_role} | role_change_type=${facts.role_change_type} | prior_title=${facts.prior_title} | prior_company=${facts.prior_company}`;
+Facts: first_name={{First Name}} | current_title={{Current Title (from job_history)}} | company_name={{Company Name Clean}} | role_start_month={{Role Start Month Label}} | months_in_role={{Months In Role}} | role_change_type={{Role Change Type}} | prior_title={{Prior Title}} | prior_company={{Prior Company}}`;
 
-  try {
-    const result = await ctx.tools.execute({
-      id: 'new_in_role_line_writer',
-      tool: 'deeplineagent',
-      input: {
-        prompt,
-        jsonSchema: {
-          type: 'object',
-          properties: {
-            new_in_role_line: { type: 'string' },
-            role_change_type: { type: 'string', enum: ['promotion', 'new_hire'] },
-            confidence: { type: 'string', enum: ['high', 'low'] },
-          },
-          required: ['new_in_role_line', 'role_change_type', 'confidence'],
-        },
-        // From SKILL.md: small reasoning model, minimal reasoning effort
-        maxCompletionTokens: 2000,
-        // TODO: Add reasoning_effort=minimal when Deepline supports it
-      },
-      description: 'Generate new-in-role copy-ready clause',
-    });
-
-    // Truncation guard: retry on finish_reason=length (fired on 10/10 rows at default reasoning)
-    const finishReason = result.toolResponse?.raw?.choices?.[0]?.finish_reason;
-    if (finishReason === 'length') {
-      throw new Error('TRUNCATION_RETRY');
+export const newInRolePlay = definePlay<Input, Output>({
+  name: 'new-in-role',
+  version: '1.0.0',
+  description: 'New in role signal with 100-line locked prompt and deterministic fields',
+  
+  inputSchema: {
+    type: 'object',
+    required: ['titles', 'location', 'headcount_min', 'headcount_max'],
+    properties: {
+      titles: { type: 'array', items: { type: 'string' } },
+      location: { type: 'string' },
+      headcount_min: { type: 'number' },
+      headcount_max: { type: 'number' },
+      months_max: { type: 'number', default: 3 }
     }
-
-    return (
-      result.data || { new_in_role_line: '', role_change_type: 'new_hire', confidence: 'low' }
-    );
-  } catch (error) {
-    if (error instanceof Error && error.message === 'TRUNCATION_RETRY') {
-      throw error;
-    }
-    return { new_in_role_line: '', role_change_type: 'new_hire', confidence: 'low' };
-  }
-}
-
-export default definePlay(
-  'new-in-role',
-  async (
-    ctx: DeeplinePlayRuntimeContext,
-    input: {
-      csv?: string;
-      job_titles: string[];
-      locations?: string[];
-      headcount_min?: number;
-      headcount_max?: number;
-      recency_months?: number; // Default: 3 (90 days)
-    }
-  ): Promise<{ rows: unknown }> => {
-    const recencyMonths = input.recency_months || 3; // Default: 90 days = 3 months
-
-    let rows: any;
-
-    if (input.csv) {
-      // Load existing CSV with person data
-      rows = await ctx.csv(input.csv).run();
-    } else {
-      // Search for new-in-role people (filter-at-source)
-      // TODO: Replace with actual Deepline person search tool
-      // Expected: prospeo_search_person or similar with person_time_in_current_role filter
-
-      // For now, this is a STUB showing the search contract
-      const searchResults = await ctx.tools.execute({
-        id: 'new_in_role_search',
-        tool: 'prospeo_search_person', // or leadmagic_profile_search
-        input: {
-          person_job_title: { include: input.job_titles },
-          person_location_search: { include: input.locations || ['United States #US'] },
-          company_headcount_custom: {
-            min: input.headcount_min || 50,
-            max: input.headcount_max || 2000,
-          },
-          person_time_in_current_role: { min: 0, max: recencyMonths },
-        },
-        description: `Search for people new in role within ${recencyMonths} months`,
-      });
-
-      rows = await ctx.dataset('new_in_role_people', searchResults.data.results || []).run({
-        key: (_row: any, index: number) => `new_in_role_${index}`,
-      });
-    }
-
-    // Enrich with new-in-role signal
-    const enriched = await rows
-      .withColumn('new_in_role_line', async (row: any) => '')
-      .withColumn('role_change_type', async (row: any) => 'new_hire')
-      .withColumn('role_start_month', async (row: any) => '')
-      .withColumn('months_in_role', async (row: any) => 0)
-      .withColumn('prior_title', async (row: any) => '')
-      .withColumn('prior_company', async (row: any) => '')
-      .withColumn('_new_in_role_enriched', async (row: any) => {
-        // Guard: require job_history with current role
-        if (!row.job_history || !Array.isArray(row.job_history) || row.job_history.length === 0) {
-          return {
-            new_in_role_line: '',
-            role_change_type: 'new_hire',
-            role_start_month: '',
-            months_in_role: 0,
-            prior_title: '',
-            prior_company: '',
-          };
-        }
-
-        // Parse job history (assuming job_history[0] is current role)
-        const currentJob = row.job_history[0];
-        const priorJob = row.job_history.length > 1 ? row.job_history[1] : null;
-
-        const currentTitle = currentJob.title || '';
-        const currentCompany = currentJob.company_name || row.company_name || '';
-        const startDate = currentJob.start_date || '';
-
-        if (!currentTitle || !currentCompany || !startDate) {
-          // Missing required facts → abstain
-          return {
-            new_in_role_line: '',
-            role_change_type: 'new_hire',
-            role_start_month: '',
-            months_in_role: 0,
-            prior_title: '',
-            prior_company: '',
-          };
-        }
-
-        // Title gate: filter loose matches (per SKILL.md §7)
-        // The search returns people whose title CONTAINS the keyword, which can match a PAST role
-        // Drop rows where current title doesn't contain any of the search keywords
-        const titleLower = currentTitle.toLowerCase();
-        const matchesKeyword = input.job_titles.some((keyword) =>
-          titleLower.includes(keyword.toLowerCase())
-        );
-
-        if (!matchesKeyword) {
-          // Title gate failed → abstain
-          return {
-            new_in_role_line: '',
-            role_change_type: 'new_hire',
-            role_start_month: '',
-            months_in_role: 0,
-            prior_title: '',
-            prior_company: '',
-          };
-        }
-
-        // Compute deterministic fields
-        const monthsInRole = monthsSince(startDate);
-        const roleStartMonth = formatMonthYear(startDate);
-        const priorTitle = priorJob?.title || '';
-        const priorCompany = priorJob?.company_name || '';
-
-        // Determine role_change_type (deterministic, never trust model)
-        const isSameCompany =
-          priorCompany &&
-          currentCompany &&
-          priorCompany.toLowerCase().trim() === currentCompany.toLowerCase().trim();
-        const roleChangeType = isSameCompany ? 'promotion' : 'new_hire';
-
-        // Build facts record for model
-        const facts = {
-          first_name: row.first_name || '',
-          current_title: currentTitle,
-          company_name: cleanCompanyName(currentCompany),
-          role_start_month: roleStartMonth,
-          months_in_role: monthsInRole,
-          role_change_type: roleChangeType,
-          prior_title: priorTitle,
-          prior_company: priorCompany,
-        };
-
-        // Generate line
-        const result = await generateNewInRoleLine(ctx, facts);
-
-        // Model's role_change_type is DISCARDED (per SKILL.md §6)
-        // The deterministic value computed above is the real one
-        return {
-          new_in_role_line: result.new_in_role_line || '',
-          role_change_type: roleChangeType,
-          role_start_month: roleStartMonth,
-          months_in_role: monthsInRole,
-          prior_title: priorTitle,
-          prior_company: priorCompany,
-        };
-      })
-      .withColumn('new_in_role_line', async (row: any) => row._new_in_role_enriched?.new_in_role_line || '')
-      .withColumn('role_change_type', async (row: any) => row._new_in_role_enriched?.role_change_type || 'new_hire')
-      .withColumn('role_start_month', async (row: any) => row._new_in_role_enriched?.role_start_month || '')
-      .withColumn('months_in_role', async (row: any) => row._new_in_role_enriched?.months_in_role || 0)
-      .withColumn('prior_title', async (row: any) => row._new_in_role_enriched?.prior_title || '')
-      .withColumn('prior_company', async (row: any) => row._new_in_role_enriched?.prior_company || '')
-      .run({
-        key: (row: any) => row.email || row.linkedin_url || String(Math.random()),
-      });
-
-    return { rows: enriched };
   },
-  {
-    description:
-      'Produces a copy-ready clause about someone who recently started or changed into their current job title. Filter-at-source signal. Output: new_in_role_line = "you stepped into the COO seat at Northwind in April". Coverage: 90% usable (9/10). Abstain = empty string.',
-    billing: { maxCreditsPerRun: 100 },
+  
+  outputSchema: {
+    type: 'object',
+    properties: {
+      new_in_role_line: { type: 'string' },
+      role_change_type: { type: 'string', enum: ['promotion', 'new_hire', ''] },
+      role_start_month: { type: 'string' },
+      months_in_role: { type: 'number' },
+      prior_title: { type: 'string' }
+    }
+  },
+  
+  async run(ctx: PlayContext<Input>): Promise<PlayOutput<Output>> {
+    const { titles, location, headcount_min, headcount_max, months_max = 3 } = ctx.input;
+    
+    // Node 2: Tool - people search with person_time_in_current_role filter
+    const people = await ctx.tools.searchPeople({
+      person_job_title: { include: titles },
+      person_location_search: { include: [location] },
+      company_headcount_custom: { min: headcount_min, max: headcount_max },
+      person_time_in_current_role: { min: 0, max: months_max }
+    });
+    
+    if (!people || people.length === 0) {
+      return {
+        data: {
+          new_in_role_line: '',
+          role_change_type: '',
+          role_start_month: '',
+          months_in_role: 0,
+          prior_title: ''
+        },
+        metadata: { abstained: true, reason: 'no_people_found' }
+      };
+    }
+    
+    const person = people[0]; // Take first result
+    
+    // Node 3: CODE - Title gate (must include abbreviations like "COO" for "Chief Operating Officer")
+    const currentTitle = person.job_history?.[0]?.title || '';
+    const titleLower = currentTitle.toLowerCase();
+    const gateList = titles.map(t => t.toLowerCase());
+    
+    // Gate: current title must contain one of the searched titles
+    const titleMatch = gateList.some(t => titleLower.includes(t));
+    if (!titleMatch) {
+      ctx.log(`Title gate failed: "${currentTitle}" not in ${titles.join(', ')}`);
+      return {
+        data: {
+          new_in_role_line: '',
+          role_change_type: '',
+          role_start_month: '',
+          months_in_role: 0,
+          prior_title: ''
+        },
+        metadata: { abstained: true, reason: 'title_gate_failed' }
+      };
+    }
+    
+    // Node 4: CODE - Deterministic fields (role_change_type, months, month label)
+    const jobHistory = person.job_history || [];
+    const current = jobHistory[0];
+    const prior = jobHistory[1];
+    
+    const currentCompany = current?.company_name || '';
+    const priorCompany = prior?.company_name || '';
+    const roleChangeType = currentCompany === priorCompany ? 'promotion' : 'new_hire';
+    
+    // Calculate months_in_role
+    const startDate = new Date(current?.start_date || Date.now());
+    const now = new Date();
+    const monthsInRole = (now.getFullYear() - startDate.getFullYear()) * 12 + 
+                        (now.getMonth() - startDate.getMonth());
+    
+    // Format role_start_month as "Month YYYY"
+    const monthName = MONTHS[startDate.getMonth()];
+    const year = startDate.getFullYear();
+    const roleStartMonth = `${monthName} ${year}`;
+    
+    // Node 5: Agent writes the line with LOCKED PROMPT
+    const facts = {
+      first_name: person.first_name || '',
+      current_title: currentTitle,
+      company_name: currentCompany,
+      role_start_month: roleStartMonth,
+      months_in_role: monthsInRole,
+      role_change_type: roleChangeType,
+      prior_title: prior?.title || '',
+      prior_company: priorCompany
+    };
+    
+    const userMessage = Object.entries(facts)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' | ');
+    
+    const aiResult = await ctx.tools.ai<{
+      new_in_role_line: string;
+      role_change_type: 'promotion' | 'new_hire';
+      confidence: 'high' | 'low';
+    }>({
+      systemPrompt: LOCKED_PROMPT_NEW_IN_ROLE,
+      userPrompt: `Facts: ${userMessage}`,
+      jsonMode: true,
+      jsonSchema: {
+        type: 'object',
+        required: ['new_in_role_line', 'role_change_type', 'confidence'],
+        properties: {
+          new_in_role_line: { type: 'string' },
+          role_change_type: { type: 'string', enum: ['promotion', 'new_hire'] },
+          confidence: { type: 'string', enum: ['high', 'low'] }
+        }
+      },
+      maxTokens: 2000, // max_completion_tokens for nano
+      // reasoning_effort: "minimal"
+      retries: 3
+    });
+    
+    // Node 6: QC + output contract
+    return {
+      data: {
+        new_in_role_line: aiResult.new_in_role_line,
+        role_change_type: roleChangeType, // Use deterministic value, not model's
+        role_start_month: roleStartMonth,
+        months_in_role: monthsInRole,
+        prior_title: facts.prior_title
+      },
+      metadata: {
+        confidence: aiResult.confidence,
+        abstained: !aiResult.new_in_role_line
+      }
+    };
   }
-);
+});
+
+export default newInRolePlay;
