@@ -1,0 +1,23 @@
+{
+  "name": "deepline-plays",
+  "version": "1.0.0",
+  "description": "Faithful TypeScript port of Clay workflows for cold outbound signal playbooks",
+  "main": "plays/signals/index.ts",
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "echo \"Tests require tool integration - see PORT.md\" && exit 1"
+  },
+  "keywords": [
+    "deepline",
+    "plays",
+    "cold-outbound",
+    "sales",
+    "signals"
+  ],
+  "author": "Jai Toor <jai@deepline.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
