@@ -31,10 +31,10 @@ This is the biggest parity gap. Examples:
 | Play | Node Graph | Code Logic | Locked Prompt | Output Schema | Input Schema | Status |
 |---|---|---|---|---|---|---|
 | **warm-intros** | ✅ | ✅ | N/A | ✅ | ✅ | ✅ FULL PARITY (formula only) |
-| **funding-signal** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **FULL PARITY** (240-line prompt verbatim) |
+| **funding-signal** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **FULL PARITY** (240-line prompt) |
+| **company-name-cleaning** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **FULL PARITY** (22-ex prompt, 4 guards) |
+| **first-name-cleaning** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **FULL PARITY** (30-ex prompt, 6 guards) |
 | **new-in-role** | ✅ | ⚠️ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT + GATE |
-| **company-name-cleaning** | ✅ | ✅ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT |
-| **first-name-cleaning** | ✅ | ✅ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT |
 | **pricing-page** | ✅ | ⚠️ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT + GUARDS |
 | **hiring-surge** | ✅ | ✅ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT |
 | **case-study-page** | ✅ | ⚠️ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT + GATES |
@@ -303,9 +303,12 @@ When claiming full parity for a play:
 
 ## Conclusion
 
-**Current Status: 1/19 FULL PARITY, 18/19 STRUCTURAL**
+**Current Status: 4/19 FULL PARITY, 15/19 STRUCTURAL**
 
-- ✅ **funding-signal**: FULL PARITY (locked prompt verbatim + all guards complete)
-- ⚠️ **18 plays**: STRUCTURAL PARITY (node graphs + schemas correct, prompts placeholder)
+- ✅ **warm-intros**: FULL PARITY (formula only, no agent node)
+- ✅ **funding-signal**: FULL PARITY (240-line locked prompt + 3 guards + EQUITY/UNSPEAKABLE sets)
+- ✅ **company-name-cleaning**: FULL PARITY (22-example locked prompt + 4 guards + BLOCK set)
+- ✅ **first-name-cleaning**: FULL PARITY (30-example locked prompt + 6 guards)
+- ⚠️ **15 plays**: STRUCTURAL PARITY (node graphs + schemas correct, prompts placeholder)
 
-This demonstrates what full parity looks like. The remaining 18 plays need locked prompt injection (~4800 lines from SKILL.md §6 sections) and remaining code logic completion.
+4 plays now demonstrate full parity. The remaining 15 need locked prompt injection (~4200 lines from SKILL.md §6 sections) and remaining code logic completion.
