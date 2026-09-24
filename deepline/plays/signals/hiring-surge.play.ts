@@ -1,180 +1,229 @@
 /**
- * Deepline port of playbook-hiring-surge
- *
- * Original: skills/playbooks/playbook-hiring-surge/SKILL.md (inferred - not in provided files)
- * Output: hiring_line
- *
- * Signal: Company is hiring aggressively (headcount growth + active job postings)
- * Source chain: Job posting aggregator → headcount growth trend → model line writer
- *
- * Abstain = empty string.
+ * Hiring Surge Play
+ * 
+ * Port of: skills/playbooks/playbook-hiring-surge/clay-workflow.md
+ * 
+ * Graph:
+ * 1. Trigger: domain
+ * 2. Company → LinkedIn URL
+ * 3. Employee count by criteria (current vs 6mo ago)
+ * 4. CODE: sanity guard + banned claims
+ * 5. CODE: ratio + floors gate
+ * 6. Agent: write the clause
  */
 
-import { definePlay } from 'deepline';
-import type { DeeplinePlayRuntimeContext } from 'deepline';
+import { definePlay, PlayContext, PlayOutput } from '../../types/play';
 
-type HiringRow = {
+interface Input {
   domain: string;
-  company_name?: string;
-  hiring_line: string;
-  open_positions_count?: number;
-  headcount_growth_6mo?: number;
-  hiring_confidence: 'high' | 'low';
-};
-
-async function generateHiringLine(
-  ctx: DeeplinePlayRuntimeContext,
-  facts: {
-    company_name: string;
-    open_positions_count: number;
-    headcount_growth_6mo?: number;
-    key_roles?: string[];
-  }
-): Promise<{ hiring_line: string; confidence: string }> {
-  const prompt = `You write one short clause about a company's hiring activity for a cold email.
-
-You will be given verified facts about hiring. Your only job is wording. Do not add facts.
-
-Return JSON only, exactly these keys:
-{"hiring_line": "...", "confidence": "high|low"}
-
-Rules:
-- The clause must read grammatically inside this sentence: "Saw <hiring_line>."
-- Start with a lowercase letter. No trailing period. No em dashes. No quote marks.
-- 5th-grade reading level. Under 80 characters.
-- Use the open positions count exactly. Say "hiring for X roles" or similar.
-- If headcount growth is given and meaningful (>10%), mention rapid growth.
-- If key roles are given, name 1-2 of them naturally.
-- Never name specific numbers for headcount growth unless very clear.
-- Never say "recently" or name a month/date.
-
-Examples:
-Input: {"company_name":"Attio","open_positions_count":23,"headcount_growth_6mo":45,"key_roles":["Sales Engineer","SDR"]}
-Output: {"hiring_line":"you're hiring for 23 roles including Sales Engineers","confidence":"high"}
-Input: {"company_name":"Northwind","open_positions_count":5,"key_roles":["VP Operations"]}
-Output: {"hiring_line":"you posted 5 open roles including a VP Operations","confidence":"high"}
-Input: {"company_name":"Acme","open_positions_count":0}
-Output: {"hiring_line":"","confidence":"low"}
-
-PER-ROW DATA
-${JSON.stringify(facts)}`;
-
-  try {
-    const result = await ctx.tools.execute({
-      id: 'hiring_line_writer',
-      tool: 'deeplineagent',
-      input: {
-        prompt,
-        jsonSchema: {
-          type: 'object',
-          properties: {
-            hiring_line: { type: 'string' },
-            confidence: { type: 'string', enum: ['high', 'low'] },
-          },
-          required: ['hiring_line', 'confidence'],
-        },
-        maxCompletionTokens: 2000,
-      },
-      description: 'Generate hiring surge copy-ready clause',
-    });
-
-    return result.data || { hiring_line: '', confidence: 'low' };
-  } catch (error) {
-    return { hiring_line: '', confidence: 'low' };
-  }
+  department: 'sales' | 'marketing'; // job_functions enum
 }
 
-export default definePlay(
-  'hiring-surge',
-  async (
-    ctx: DeeplinePlayRuntimeContext,
-    input: { csv: string }
-  ): Promise<{ rows: unknown }> => {
-    const rows = await ctx.csv(input.csv).run();
+interface Output {
+  hiring_surge_line: string;
+  hiring_surge_dept: string;
+  hiring_surge_hires: number;
+  confidence: 'high' | 'low';
+}
 
-    const enriched = await rows
-      .withColumn('hiring_line', async (row: any) => '')
-      .withColumn('open_positions_count', async (row: any) => 0)
-      .withColumn('hiring_confidence', async (row: any) => 'low')
-      .withColumn('_hiring_enriched', async (row: any) => {
-        if (!row.domain) {
-          return {
-            hiring_line: '',
-            open_positions_count: 0,
-            hiring_confidence: 'low',
-          };
-        }
+// Banned hire claims from clay-workflow.md
+const BANNED_HIRE_CLAIMS = new Set([
+  'hired', 'added', 'brought on', 'recruited', 'grew by', 'onboarded'
+]);
 
-        const domain = String(row.domain).toLowerCase().trim();
+// ============================================================================
+// LOCKED PROMPT from SKILL.md §6 (lines 270-300) - VERBATIM, graded at 10/10
+// Model: gpt-4o-mini inside Clay, gpt-5-nano with reasoning_effort="minimal" outside Clay
+// DO NOT PARAPHRASE. Model was graded on this exact text.
+// ============================================================================
+const LOCKED_PROMPT_HIRING_SURGE = `STATIC PREFIX (byte-identical across calls, keep first)
 
-        // TODO: Use actual Deepline job posting aggregator
-        // Expected tools: crustdata job postings, or similar
-        let jobData: any = null;
-        try {
-          const jobLookup = await ctx.tools.execute({
-            id: 'job_postings_lookup',
-            tool: 'crustdata_companydb_search', // or job postings API
-            input: { domain },
-            description: `Look up active job postings for ${domain}`,
-          });
+You write one short clause for a cold email. The clause tells a company that we noticed people on one of their teams recently started new roles.
 
-          jobData = jobLookup.data;
-        } catch (error) {
-          return {
-            hiring_line: '',
-            open_positions_count: 0,
-            hiring_confidence: 'low',
-          };
-        }
+You are given a department name and how many people on that team started their current role in the last 6 months. The number is already verified. Your only job is wording.
 
-        if (!jobData || !jobData.open_positions) {
-          return {
-            hiring_line: '',
-            open_positions_count: 0,
-            hiring_confidence: 'low',
-          };
-        }
+IMPORTANT: the number counts people who STARTED A NEW ROLE. Some of them were hired from outside and some were promoted or moved internally. You cannot tell which. So never say the company hired, added, brought on, recruited, or grew by those people. Say that those people started new roles, or are new in their roles, or joined that team.
 
-        const openPositionsCount = Number(jobData.open_positions_count || 0);
-        if (openPositionsCount === 0) {
-          // No hiring activity
-          return {
-            hiring_line: '',
-            open_positions_count: 0,
-            hiring_confidence: 'low',
-          };
-        }
+Return JSON only, no prose, no code fence:
+{"hiring_surge_line": "...", "confidence": "high|low"}
 
-        // Extract key roles (e.g., top 2-3 titles)
-        const keyRoles = Array.isArray(jobData.key_roles)
-          ? jobData.key_roles.slice(0, 3)
-          : [];
+Rules:
+- The clause must read correctly inside this sentence: "Noticed <hiring_surge_line>."
+- Write it in second person, about "you" or "your team". Never write the company name.
+- Start with a lowercase letter. No trailing period. No em dashes. 5th grade reading level.
+- Use the exact number you are given. Never invent a number, a job title, a person, or a date.
+- Say "in the last six months" or "over the past six months". Never a specific month or date.
+- Never claim the company hired anyone. Say people started new roles.
+- Keep it under 90 characters.
+- confidence is "high" when the number is 3 or more, otherwise "low".
 
-        const facts = {
-          company_name: row.company_name || jobData.name || domain,
-          open_positions_count: openPositionsCount,
-          headcount_growth_6mo: jobData.headcount_growth_6mo,
-          key_roles: keyRoles,
-        };
+Examples:
+Input: {"department":"sales","role_starts_last_6_months":8}
+Output: {"hiring_surge_line":"your sales team has 8 people who started new roles in the last six months","confidence":"high"}
+Input: {"department":"marketing","role_starts_last_6_months":3}
+Output: {"hiring_surge_line":"on your marketing team, 3 people started new roles in the past six months","confidence":"high"}
+Input: {"department":"sales","role_starts_last_6_months":2}
+Output: {"hiring_surge_line":"you have 2 people on the sales team who started new roles in the last six months","confidence":"low"}
 
-        const result = await generateHiringLine(ctx, facts);
+PER-ROW DATA (appended last)
+{"department":"{{Hiring Surge Dept}}","role_starts_last_6_months":{{Hiring Surge Hires}}}`;
 
-        return {
-          hiring_line: result.hiring_line || '',
-          open_positions_count: openPositionsCount,
-          hiring_confidence: result.confidence || 'low',
-        };
-      })
-      .withColumn('hiring_line', async (row: any) => row._hiring_enriched?.hiring_line || '')
-      .withColumn('open_positions_count', async (row: any) => row._hiring_enriched?.open_positions_count || 0)
-      .withColumn('hiring_confidence', async (row: any) => row._hiring_enriched?.hiring_confidence || 'low')
-      .run({ key: (row: any) => row.domain || String(Math.random()) });
-
-    return { rows: enriched };
+export const hiringSurgePlay = definePlay<Input, Output>({
+  name: 'hiring-surge',
+  version: '1.0.0',
+  description: 'Hiring surge signal with ratio + floors gate and locked prompt',
+  
+  inputSchema: {
+    type: 'object',
+    required: ['domain', 'department'],
+    properties: {
+      domain: { type: 'string' },
+      department: { type: 'string', enum: ['sales', 'marketing'] }
+    }
   },
-  {
-    description:
-      'Produces a copy-ready clause about a company hiring aggressively. Signal: active job postings + headcount growth. Output: hiring_line = "you\'re hiring for 23 roles including Sales Engineers". Abstain = empty string.',
-    billing: { maxCreditsPerRun: 100 },
+  
+  outputSchema: {
+    type: 'object',
+    properties: {
+      hiring_surge_line: { type: 'string' },
+      hiring_surge_dept: { type: 'string' },
+      hiring_surge_hires: { type: 'number' },
+      confidence: { type: 'string', enum: ['high', 'low'] }
+    }
+  },
+  
+  async run(ctx: PlayContext<Input>): Promise<PlayOutput<Output>> {
+    const { domain, department } = ctx.input;
+    
+    // Node 2: Company → LinkedIn URL (tool stub)
+    const companyData = await ctx.tools.enrichCompany(domain);
+    const linkedinUrl = companyData.linkedin_url;
+    
+    if (!linkedinUrl) {
+      ctx.log('No LinkedIn URL found');
+      return {
+        data: {
+          hiring_surge_line: '',
+          hiring_surge_dept: department,
+          hiring_surge_hires: 0,
+          confidence: 'low'
+        },
+        metadata: { abstained: true, reason: 'no_linkedin_url' }
+      };
+    }
+    
+    // Node 3: Employee count by criteria (current vs 6 months ago)
+    // Tool stub - this is a metered Clay action, not available in workflows
+    // Returns: current_count, six_months_ago_count
+    const jobFunction = department === 'sales' ? 'Sales' : 'Marketing and Public Relations';
+    
+    const currentCount = await ctx.tools.searchPeople({
+      company_linkedin_url: linkedinUrl,
+      job_functions: [jobFunction]
+    });
+    
+    const sixMonthsAgoCount = await ctx.tools.searchPeople({
+      company_linkedin_url: linkedinUrl,
+      job_functions: [jobFunction],
+      person_time_in_current_role: { min: 6, max: 600 }
+    });
+    
+    const totalNow = currentCount.length;
+    const totalThen = sixMonthsAgoCount.length;
+    const recentStarts = totalNow - totalThen;
+    
+    // Node 4: CODE - Sanity guard (department count vs known total headcount)
+    // From SKILL.md §7: abstain when department count exceeds company total
+    if (companyData.headcount && totalNow > companyData.headcount) {
+      ctx.log(`Sanity check failed: ${department} count ${totalNow} > company total ${companyData.headcount}`);
+      return {
+        data: {
+          hiring_surge_line: '',
+          hiring_surge_dept: department,
+          hiring_surge_hires: 0,
+          confidence: 'low'
+        },
+        metadata: { abstained: true, reason: 'sanity_check_failed' }
+      };
+    }
+    
+    // Node 5: CODE - Ratio + floors gate (from clay-workflow.md)
+    // hires >= 2 && total >= 4 && (hires / (total - hires)) >= 0.15
+    const eligible = recentStarts >= 2 && 
+                    totalNow >= 4 && 
+                    (recentStarts / (totalNow - recentStarts)) >= 0.15;
+    
+    // Override: roleCount > 6 (absolute) - from clay-workflow.md
+    const absoluteOverride = recentStarts > 6;
+    
+    if (!eligible && !absoluteOverride) {
+      ctx.log(`Gate failed: recent=${recentStarts}, total=${totalNow}, ratio=${recentStarts/(totalNow-recentStarts)}`);
+      return {
+        data: {
+          hiring_surge_line: '',
+          hiring_surge_dept: department,
+          hiring_surge_hires: recentStarts,
+          confidence: 'low'
+        },
+        metadata: { abstained: true, reason: 'below_threshold' }
+      };
+    }
+    
+    // Node 6: Agent writes the clause with LOCKED PROMPT
+    const userMessage = JSON.stringify({
+      department,
+      role_starts_last_6_months: recentStarts
+    });
+    
+    const aiResult = await ctx.tools.ai<{
+      hiring_surge_line: string;
+      confidence: 'high' | 'low';
+    }>({
+      systemPrompt: LOCKED_PROMPT_HIRING_SURGE,
+      userPrompt: userMessage,
+      jsonMode: true,
+      jsonSchema: {
+        type: 'object',
+        required: ['hiring_surge_line', 'confidence'],
+        properties: {
+          hiring_surge_line: { type: 'string' },
+          confidence: { type: 'string', enum: ['high', 'low'] }
+        }
+      },
+      maxTokens: 1200, // max_completion_tokens for nano with minimal effort
+      retries: 3
+    });
+    
+    // Banned hire claims check (from clay-workflow.md)
+    const lineLower = aiResult.hiring_surge_line.toLowerCase();
+    for (const banned of BANNED_HIRE_CLAIMS) {
+      if (lineLower.includes(banned)) {
+        ctx.log(`Banned hire claim detected: ${banned}`);
+        return {
+          data: {
+            hiring_surge_line: '',
+            hiring_surge_dept: department,
+            hiring_surge_hires: recentStarts,
+            confidence: 'low'
+          },
+          metadata: { abstained: true, reason: 'banned_hire_claim' }
+        };
+      }
+    }
+    
+    return {
+      data: {
+        hiring_surge_line: aiResult.hiring_surge_line,
+        hiring_surge_dept: department,
+        hiring_surge_hires: recentStarts,
+        confidence: aiResult.confidence
+      },
+      metadata: {
+        confidence: aiResult.confidence,
+        abstained: !aiResult.hiring_surge_line
+      }
+    };
   }
-);
+});
+
+export default hiringSurgePlay;
