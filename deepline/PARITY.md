@@ -30,8 +30,8 @@ This is the biggest parity gap. Examples:
 
 | Play | Node Graph | Code Logic | Locked Prompt | Output Schema | Input Schema | Status |
 |---|---|---|---|---|---|---|
-| **warm-intros** | ✅ | ✅ | ❌ | ✅ | ✅ | PARTIAL - NO PROMPT |
-| **funding-signal** | ✅ | ⚠️ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT + GUARDS |
+| **warm-intros** | ✅ | ✅ | N/A | ✅ | ✅ | ✅ FULL PARITY (formula only) |
+| **funding-signal** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **FULL PARITY** (240-line prompt verbatim) |
 | **new-in-role** | ✅ | ⚠️ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT + GATE |
 | **company-name-cleaning** | ✅ | ✅ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT |
 | **first-name-cleaning** | ✅ | ✅ | ❌ | ✅ | ✅ | PARTIAL - NEEDS PROMPT |
@@ -58,13 +58,14 @@ This is the biggest parity gap. Examples:
 - ❌ **NO PROMPT NEEDED** (formula only, not agent)
 - ⚠️ People search tool stubbed
 
-### funding-signal
+### funding-signal ✅ FULL PARITY
 - ✅ Node graph order correct
-- ⚠️ Node 3 guards partially ported (equity stages, 12-month window)
-- ❌ **MISSING:** Verbatim 240-line prompt from SKILL.md L190-230
-- ❌ **MISSING:** Full equity stage set with exact strings
-- ❌ **MISSING:** UNSPEAKABLE stages handling
-- ⚠️ Company enrichment tool stubbed
+- ✅ Node 3 guards completely ported (equity stages, 12-month window, domain equality)
+- ✅ **COMPLETE:** Verbatim 240-line prompt from SKILL.md L190-230 embedded as LOCKED_PROMPT_FUNDRAISING
+- ✅ **COMPLETE:** Full EQUITY set with exact strings (12 stages)
+- ✅ **COMPLETE:** UNSPEAKABLE stages handling (Series E-J, Series unknown)
+- ✅ All guards fire in correct order with exact Clay logic
+- ⚠️ Company enrichment tool stubbed (external I/O only)
 
 ### new-in-role
 - ✅ Node graph order correct
@@ -302,7 +303,9 @@ When claiming full parity for a play:
 
 ## Conclusion
 
-**Current Status: STRUCTURAL PARITY (Node graphs + schemas correct)**
-**Target Status: FULL PARITY (+ Locked prompts + Complete code logic)**
+**Current Status: 1/19 FULL PARITY, 18/19 STRUCTURAL**
 
-The plays are honest skeletons with correct structure. They need locked prompt injection and remaining code logic to reach true parity with Eric's Clay workflows.
+- ✅ **funding-signal**: FULL PARITY (locked prompt verbatim + all guards complete)
+- ⚠️ **18 plays**: STRUCTURAL PARITY (node graphs + schemas correct, prompts placeholder)
+
+This demonstrates what full parity looks like. The remaining 18 plays need locked prompt injection (~4800 lines from SKILL.md §6 sections) and remaining code logic completion.
