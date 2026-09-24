@@ -303,12 +303,18 @@ When claiming full parity for a play:
 
 ## Conclusion
 
-**Current Status: 4/19 FULL PARITY, 15/19 STRUCTURAL**
+**Current Status: 5/19 FULL PARITY, 14/19 STRUCTURAL**
 
-- ✅ **warm-intros**: FULL PARITY (formula only, no agent node)
-- ✅ **funding-signal**: FULL PARITY (240-line locked prompt + 3 guards + EQUITY/UNSPEAKABLE sets)
-- ✅ **company-name-cleaning**: FULL PARITY (22-example locked prompt + 4 guards + BLOCK set)
-- ✅ **first-name-cleaning**: FULL PARITY (30-example locked prompt + 6 guards)
-- ⚠️ **15 plays**: STRUCTURAL PARITY (node graphs + schemas correct, prompts placeholder)
+✅ **FULL PARITY COMPLETE (5 plays):**
+1. **warm-intros**: Formula only (no agent node)
+2. **funding-signal**: 240-line locked prompt + 3 guards + EQUITY/UNSPEAKABLE sets
+3. **company-name-cleaning**: 22-example locked prompt + 4 guards + BLOCK set
+4. **first-name-cleaning**: 30-example locked prompt + 6 guards
+5. **hiring-surge**: Locked prompt + ratio/floors gate + banned claims check
 
-4 plays now demonstrate full parity. The remaining 15 need locked prompt injection (~4200 lines from SKILL.md §6 sections) and remaining code logic completion.
+⚠️ **STRUCTURAL PARITY (14 plays):**
+- Node graphs + schemas correct
+- Some code logic ported
+- Locked prompts still placeholder (NOT verbatim from SKILL.md §6)
+
+Remaining work: ~3900 lines of locked prompts from SKILL.md §6 sections for the other 14 plays.
